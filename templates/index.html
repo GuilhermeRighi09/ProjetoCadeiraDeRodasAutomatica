@@ -1,10 +1,111 @@
-<!DOCTYPE html>
-<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Cadeira de Rodas IoT</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+
+<div class="container">
+    <header>
+        <h1>Controle de Direção — Cadeira de Rodas</h1>
+        <div class="live-indicator">
+            <div class="dot"></div>
+            <span>Monitorando via MQTT</span>
+        </div>
+    </header>
+
+    <div class="card current-direction">
+        <div class="card-title">Última Direção Registrada</div>
+        <div class="direction-arrow" id="seta-direcao" aria-live="polite" aria-label="Sem direção">—</div>
+        <div class="direction-display" id="ultima-direcao">---</div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Histórico de Movimentação em Tempo Real</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Comando / Direção</th>
+                    <th>Data / Hora</th>
+                </tr>
+            </thead>
+            <tbody id="tabela-historico">
+                <tr><td colspan="3" style="text-align:center;">Carregando dados...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    async function carregarHistorico() {
+        try {
+            const resposta = await fetch('/api/historico');
+            const dados = await resposta.json();
+
+            const tabela = document.getElementById('tabela-historico');
+            const displayUltima = document.getElementById('ultima-direcao');
+            const setaDirecao = document.getElementById('seta-direcao');
+
+            const setas = {
+                FRENTE: '↑', TRAS: '↓', ESQUERDA: '←', DIREITA: '→', CENTRO: '■'
+            };
+
+            function atualizarIndicador(direcao) {
+                setaDirecao.innerText = setas[direcao] || '—';
+                setaDirecao.setAttribute('aria-label', `Direção: ${direcao}`);
+            }
+
+            if (dados.length === 0) {
+                tabela.innerHTML = '<tr><td colspan="3" style="text-align:center;">Nenhum registro encontrado.</td></tr>';
+                displayUltima.innerText = 'NENHUM';
+                atualizarIndicador('NENHUM');
+                return;
+            }
+
+            displayUltima.innerText = dados[0].direcao;
+            atualizarIndicador(dados[0].direcao);
+
+            tabela.innerHTML = dados.map(item => {
+                const dataFormatada = new Date(item.criado_em).toLocaleString('pt-BR');
+                const classeBadge = `badge-${item.direcao.toLowerCase()}`;
+
+                return `
+                    <tr>
+                        <td>#${item.id}</td>
+                        <td><span class="badge ${classeBadge}">${item.direcao}</span></td>
+                        <td>${dataFormatada}</td>
+                    </tr>
+                `;
+            }).join('');
+
+        } catch (erro) {
+            console.error('Erro ao buscar dados:', erro);
+        }
+    }
+
+    carregarHistorico();
+
+    // Recebe a nova direção assim que o MQTT a grava, sem aguardar polling.
+    const eventos = new EventSource('/api/eventos');
+    eventos.addEventListener('direcao', (evento) => {
+        const registro = JSON.parse(evento.data);
+        const setas = {
+            FRENTE: '\u2191', TRAS: '\u2193', ESQUERDA: '\u2190', DIREITA: '\u2192', CENTRO: '\u25a0'
+        };
+
+        document.getElementById('ultima-direcao').innerText = registro.direcao;
+        const seta = document.getElementById('seta-direcao');
+        seta.innerText = setas[registro.direcao] || '\u2014';
+        seta.setAttribute('aria-label', `Direção: ${registro.direcao}`);
+
+        // Atualiza a tabela somente quando há dado novo, em vez de a cada 2 s.
+        carregarHistorico();
+    });
+
+    eventos.onerror = () => console.warn('Aguardando reconexão ao fluxo em tempo real...');
+</script>
 
 </body>
 </html>
