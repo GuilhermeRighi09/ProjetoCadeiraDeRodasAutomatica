@@ -1,54 +1,54 @@
 import pytest
-from App import app, db
-from database import HistoricoDirecao
+
+from App import create_app
+from database import db, HistoricoDirecao
+
 
 @pytest.fixture
-def client():
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+def app():
+    app_teste = create_app(
+        {"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"},
+        iniciar_mqtt=False,
+    )
+    yield app_teste
+    with app_teste.app_context():
+        db.session.remove()
+        db.drop_all()
 
-    with app.test_client() as client:
-        with app.app_context():
-            db.create_all()
-            yield client
-            db.drop_all()
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
 
 
 def test_rota_index_sucesso(client):
-    resposta = client.get('/')
+    resposta = client.get("/")
     assert resposta.status_code == 200
-    assert b'Painel Cadeira de Rodas IoT' in resposta.data
+    assert b"Painel Cadeira de Rodas IoT" in resposta.data
 
 
 def test_rota_status_sucesso(client):
-    resposta = client.get('/api/status')
+    resposta = client.get("/api/status")
     assert resposta.status_code == 200
-    assert resposta.json['status'] == "API da Cadeira de Rodas ativa"
+    assert resposta.json["status"] == "API da Cadeira de Rodas ativa"
 
 
 def test_obter_historico_retorna_lista(client):
-    resposta = client.get('/api/historico')
+    resposta = client.get("/api/historico")
     assert resposta.status_code == 200
-    assert isinstance(resposta.json, list)
+    assert resposta.json == []
 
 
 def test_rota_inexistente_retorna_404(client):
-    resposta = client.get('/api/rota_invalida')
-    assert resposta.status_code == 404
+    assert client.get("/api/rota_invalida").status_code == 404
 
 
-@pytest.mark.parametrize("direcao_input, esperado", [
-    ("FRENTE", "FRENTE"),
-    ("TRAS", "TRAS"),
-    ("ESQUERDA", "ESQUERDA"),
-    ("DIREITA", "DIREITA"),
-])
-def test_salvamento_direcoes_parametrizado(client, direcao_input, esperado):
+@pytest.mark.parametrize("direcao_input", ["FRENTE", "TRAS", "ESQUERDA", "DIREITA"])
+def test_salvamento_direcoes_parametrizado(app, direcao_input):
     with app.app_context():
-        novo_registro = HistoricoDirecao(direcao=direcao_input)
-        db.session.add(novo_registro)
+        db.session.add(HistoricoDirecao(direcao=direcao_input))
         db.session.commit()
 
-        registro = HistoricoDirecao.query.filter_by(direcao=esperado).first()
+        registro = HistoricoDirecao.query.filter_by(direcao=direcao_input).first()
         assert registro is not None
-        assert registro.direcao == esperado
+        assert registro.direcao == direcao_input
